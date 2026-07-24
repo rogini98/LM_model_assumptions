@@ -1,0 +1,379 @@
+---
+title: "Model Formulation and Assumptions in the Linear Model"
+subtitle: "Growth data, diagnostic plots, and the LINE assumptions"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+## Before you start
+
+This notebook rebuilds every figure from the lecture, using code you can read,
+run, and change. Each section ends with a "**Try it yourself**" exercise, make sure to
+do those before moving on. They are where the actual learning happens, not
+the code above them.
+
+You will need the following four packages. Run this once:
+
+```{r install, eval=FALSE}
+install.packages(c("ggplot2", "dplyr", "broom", "lmtest"))
+```
+
+```{r libraries}
+library(ggplot2)
+library(dplyr)
+library(broom)
+library(lmtest)
+
+set.seed(2026)
+
+NAVY   <- "#1E2761"
+ACCENT <- "#E8871E"
+GREY   <- "#898781"
+ICE    <- "#CADCFC"
+GREEN  <- "#1D9E75"
+
+theme_deck <- theme_minimal(base_size = 13) +
+  theme(panel.grid.minor = element_blank(),
+        axis.title = element_text(face = "bold"))
+```
+
+---
+
+## 1. The growth data
+
+We anchor everything to **real CDC growth-chart medians** (Source: https://www.cdc.gov/growthcharts/cdc-data-files.htm). 
+The curve in all figures are pulled from the real CDC data and the individual data points alongside those curves 
+represent the simulated data points.
+
+Rather than typing in a handful of milestone values by hand, the following chunk of 
+code pulls the **exact published medians directly from CDC's own data files**
+every time it runs. (Alternatively, you could download those files locally and upload them in your RStudio environment, 
+instead of fetching them from the CDC website.)
+Note that two files per measurement are needed, because CDC publishes infants
+(birth–36 months) and older children (2–20 years) as separate tables.
+
+```{r cdc-anchors}
+# Official CDC/NCHS data files (2000 growth charts), fetched live.
+# Source: https://www.cdc.gov/growthcharts/cdc-data-files.htm
+statage  <- read.csv("https://www.cdc.gov/growthcharts/data/zscore/statage.csv")   # stature, 2-20 yr
+wtage    <- read.csv("https://www.cdc.gov/growthcharts/data/zscore/wtage.csv")     # weight, 2-20 yr
+lenageinf<- read.csv("https://www.cdc.gov/growthcharts/data/zscore/lenageinf.csv") # length, birth-36 mo
+wtageinf <- read.csv("https://www.cdc.gov/growthcharts/data/zscore/wtageinf.csv")  # weight, birth-36 mo
+
+# CDC's files sometimes read Agemos/M as character (trailing whitespaces
+# or a stray footnote character can do this). CDC also concatenates
+# the boys' and girls' tables in one CSV, with a second header row at
+# the transition -- read.csv() does not catch it, so it becomes a data
+# row full of NAs once converted. We drop those rows explicitly below.
+fix_numeric <- function(df) {
+  df$Agemos <- as.numeric(trimws(df$Agemos))
+  df$M      <- as.numeric(trimws(df$M))
+  df$Sex    <- as.numeric(trimws(df$Sex))
+  df[!is.na(df$Sex) & !is.na(df$Agemos) & !is.na(df$M), ]
+}
+statage   <- fix_numeric(statage)
+wtage     <- fix_numeric(wtage)
+lenageinf <- fix_numeric(lenageinf)
+wtageinf  <- fix_numeric(wtageinf)
+
+# Confirm nothing unexpected remains -- all four should print 0 now
+cat("NAs remaining -- statage:", sum(is.na(statage$Agemos)) + sum(is.na(statage$M)),
+    "| wtage:", sum(is.na(wtage$Agemos)) + sum(is.na(wtage$M)),
+    "| lenageinf:", sum(is.na(lenageinf$Agemos)) + sum(is.na(lenageinf$M)),
+    "| wtageinf:", sum(is.na(wtageinf$Agemos)) + sum(is.na(wtageinf$M)), "\n")
+
+# Sex == 1 is male in all four files. We use the boys' curve throughout
+# for consistency. 
+# The same code works for Sex == 2 (female), as an exercise you could re-run this code 
+# to compare males to females
+boys_height_young <- lenageinf[lenageinf$Sex == 1, c("Agemos", "M")]
+boys_height_older <- statage[statage$Sex == 1, c("Agemos", "M")]
+boys_weight_young <- wtageinf[wtageinf$Sex == 1, c("Agemos", "M")]
+boys_weight_older <- wtage[wtage$Sex == 1, c("Agemos", "M")]
+
+# Infant tables cover birth-36mo; switch to the 2-20yr tables from 24mo
+# onward, to avoid double-counting the overlapping 24-36mo range.
+# NB: Agemos is now guaranteed numeric, so these comparisons are safe.
+height_table <- rbind(boys_height_young[boys_height_young$Agemos < 24, ],
+                      boys_height_older[boys_height_older$Agemos >= 24, ])
+weight_table <- rbind(boys_weight_young[boys_weight_young$Agemos < 24, ],
+                      boys_weight_older[boys_weight_older$Agemos >= 24, ])
+
+age_anchor    <- height_table$Agemos / 12   # convert months to years
+height_median <- height_table$M
+weight_age    <- weight_table$Agemos / 12
+weight_median <- weight_table$M
+
+age_grid      <- seq(0, 18, length.out = 200)
+height_curve  <- approx(age_anchor, height_median, xout = age_grid)$y
+weight_curve  <- approx(weight_age, weight_median, xout = age_grid)$y
+
+cat("Median height at age 5:", round(approx(age_anchor, height_median, xout = 5)$y, 1), "cm\n")
+cat("Median height at age 12:", round(approx(age_anchor, height_median, xout = 12)$y, 1), "cm\n")
+cat("Median weight at age 10:", round(approx(weight_age, weight_median, xout = 10)$y, 1), "kg\n")
+```
+
+> **NB:** if you are offline, or CDC's server is briefly unreachable,
+> this chunk will fail — that is expected for a live fetch. The rest of
+> the notebook depends on `age_anchor`, `height_median`, `weight_age`,
+> and `weight_median` existing, so re-run this chunk once you are back
+> online before continuing.
+
+```{r simulate-class}
+n_kids     <- 70
+ages_sim   <- runif(n_kids, 0, 18)
+height_sim <- approx(age_anchor, height_median, xout = ages_sim)$y +
+  rnorm(n_kids, 0, 3.5)
+
+growth_data <- data.frame(age = ages_sim, height = height_sim)
+head(growth_data)
+```
+
+> **Try it yourself:** change `n_kids` to 20, then to 300. Re-run the chunk
+> and look at the scatter below. What changes about how clearly you can
+> see the underlying trend ? What *does not* change ?
+
+---
+
+## 2. Fitting the model
+
+```{r fit}
+fit <- lm(height ~ age, data = growth_data)
+summary(fit)
+```
+
+`summary()` gives you the estimate, standard error, t-statistic, and
+p-value for the slope — this is the output the "inference" half of the
+lecture was about. `augment()` (from **broom** R package) adds `.fitted` and
+`.resid` columns automatically, which every diagnostic plot below needs:
+
+```{r augment}
+growth_aug <- augment(fit)
+head(growth_aug)
+```
+
+---
+
+## 3. Figure: the linearity reality check
+
+```{r fig1-linearity, fig.width=6, fig.height=4}
+ggplot() +
+  geom_point(data = growth_data, aes(age, height), color = NAVY, alpha = 0.75, size = 2) +
+  geom_line(data = data.frame(age = age_grid, height = height_curve),
+            aes(age, height), color = GREEN, linewidth = 1.1) +
+  geom_smooth(data = growth_data, aes(age, height), method = "lm",
+              se = FALSE, color = ACCENT, linetype = "dashed", linewidth = 1) +
+  labs(x = "age (years)", y = "height (cm)",
+       title = "Real CDC growth curve vs. a straight-line fit") +
+  theme_deck
+```
+
+> **Try it yourself:** the straight-line fit (orange dashed) misses both
+> ends of the real curve (green). Try fitting `height ~ age + I(age^2)`
+> instead — does the fitted curve track the real one more closely? This
+> is exactly the "richer X" fix named on the L slide.
+
+---
+
+## 4. Figure: the independence reality check
+
+```{r fig2-independence, fig.width=6, fig.height=4}
+ages_track    <- c(2, 4, 6, 8, 10, 12, 14, 16)
+child_offsets <- c(-9, -6, -3, 3, 6, 9)   # 3 pairs, above/below median
+
+independence_data <- lapply(seq_along(child_offsets), function(i) {
+  base <- approx(age_anchor, height_median, xout = ages_track)$y + child_offsets[i]
+  data.frame(
+    child  = paste0("child_", i),
+    pair   = ceiling(i / 2),
+    age    = ages_track,
+    height = base + rnorm(length(ages_track), 0, 1.8)
+  )
+}) %>% bind_rows()
+
+ggplot(independence_data, aes(age, height, group = child, color = factor(pair))) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c(NAVY, ACCENT, GREEN), name = "Child pair") +
+  labs(x = "age (years)", y = "height (cm)",
+       title = "Repeated measurements on the same children") +
+  theme_deck
+```
+
+> **Try it yourself:** each "pair" shares a colour. Pick one pair and trace
+> just their two lines. Do they track each other more closely than they
+> track a different-coloured pair? That visual clustering is the
+> independence violation, before any formal test.
+
+---
+
+## 5. Figure: normality / equal-variance reality check (weight)
+
+```{r fig3-variance, fig.width=6, fig.height=4}
+n_w        <- 90
+ages_w     <- runif(n_w, 0.2, 18)
+mean_w     <- approx(weight_age, weight_median, xout = ages_w)$y
+weight_sim <- mean_w * exp(rnorm(n_w, 0, 0.18))  # lognormal-ish: skewed, variance grows with mean
+
+weight_data <- data.frame(age = ages_w, weight = weight_sim, mean_w = mean_w)
+weight_data$resid <- weight_data$weight - weight_data$mean_w
+
+var_young <- var(weight_data$resid[weight_data$age < 6])
+var_old   <- var(weight_data$resid[weight_data$age >= 12])
+cat("var(residual), age < 6: ", round(var_young, 1),
+    "\nvar(residual), age >= 12:", round(var_old, 1), "\n")
+```
+
+```{r fig3-plot, fig.width=6, fig.height=4}
+ggplot(weight_data, aes(age, weight)) +
+  geom_point(color = NAVY, alpha = 0.75, size = 2) +
+  geom_line(data = data.frame(age = age_grid, weight = weight_curve),
+            aes(age, weight), color = GREEN, linewidth = 1.1) +
+  geom_ribbon(data = data.frame(age = age_grid, weight = weight_curve),
+              aes(age, ymin = weight - 4, ymax = weight + 4),
+              fill = ICE, alpha = 0.4, inherit.aes = FALSE) +
+  labs(x = "age (years)", y = "weight (kg)",
+       title = "Real CDC weight curve vs. assumed constant-width band") +
+  theme_deck
+```
+
+> **Try it yourself:** the printed variances above should show the older
+> group's variance is roughly 20 times the younger group's. Try
+> `log(weight_sim)` instead of raw weight, recompute the two variances.
+> Does log-transforming close that gap ? This is the practical reason
+> weight gets log-transformed so often in real analyses.
+
+---
+
+## 6. The eight diagnostic mini-plots: well-behaved vs. violated
+
+Same plot type within each pair. The only thing
+that should change between "well-behaved" and "violated" is the pattern,
+not the axes.
+
+```{r mini-theme}
+theme_mini <- theme_minimal(base_size = 14) +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(), axis.title = element_text(face = "bold"))
+```
+
+### L: Linear (residual vs. fitted)
+
+```{r mini-L, fig.width=8, fig.height=3.2}
+n <- 220
+fitted_vals <- seq(0, 10, length.out = n)
+
+L_good <- ggplot(data.frame(fitted = fitted_vals, resid = rnorm(n, 0, 1.3)),
+                  aes(fitted, resid)) +
+  geom_point(color = NAVY, alpha = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = ACCENT, linewidth = 1.3) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = GREY) +
+  labs(x = "fitted value", y = "residual", title = "Well-behaved") + theme_mini
+
+resid_bad_L <- 0.25 * (fitted_vals - 5)^2 - 3 + rnorm(n, 0, 1.4)
+L_bad <- ggplot(data.frame(fitted = fitted_vals, resid = resid_bad_L),
+                 aes(fitted, resid)) +
+  geom_point(color = NAVY, alpha = 0.55) +
+  geom_smooth(method = "loess", se = FALSE, color = ACCENT, linewidth = 1.3) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = GREY) +
+  labs(x = "fitted value", y = "residual", title = "Violated") + theme_mini
+
+library(patchwork)  # install.packages("patchwork") if needed
+L_good | L_bad
+```
+
+### I: Independent (residual vs. order of observation)
+
+```{r mini-I, fig.width=8, fig.height=3.2}
+order <- 1:60
+
+I_good <- ggplot(data.frame(order = order, resid = rnorm(60, 0, 1)), aes(order, resid)) +
+  geom_line(color = NAVY, alpha = 0.6) + geom_point(color = NAVY) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = GREY) +
+  labs(x = "order of observation", y = "residual", title = "Well-behaved") + theme_mini
+
+ar <- numeric(60); ar[1] <- rnorm(1)
+for (t in 2:60) ar[t] <- 0.85 * ar[t - 1] + rnorm(1, 0, 0.6)
+I_bad <- ggplot(data.frame(order = order, resid = ar), aes(order, resid)) +
+  geom_line(color = NAVY, alpha = 0.6) + geom_point(color = NAVY) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = GREY) +
+  labs(x = "order of observation", y = "residual", title = "Violated") + theme_mini
+
+I_good | I_bad
+```
+
+### N: Normal (QQ-plot)
+
+```{r mini-N, fig.width=8, fig.height=3.2}
+N_good <- ggplot(data.frame(resid = rnorm(120)), aes(sample = resid)) +
+  stat_qq(color = NAVY, alpha = 0.75) +
+  stat_qq_line(color = ACCENT, linewidth = 1.2) +
+  labs(x = "theoretical quantiles", y = "sample quantiles", title = "Well-behaved") + theme_mini
+
+N_bad <- ggplot(data.frame(resid = rt(120, df = 3)), aes(sample = resid)) +
+  stat_qq(color = NAVY, alpha = 0.75) +
+  stat_qq_line(color = ACCENT, linewidth = 1.2) +
+  labs(x = "theoretical quantiles", y = "sample quantiles", title = "Violated") + theme_mini
+
+N_good | N_bad
+```
+
+### E: Equal variance (residual vs. fitted)
+
+```{r mini-E, fig.width=8, fig.height=3.2}
+fitted_e <- runif(160, 1, 9)
+
+E_good <- ggplot(data.frame(fitted = fitted_e, resid = rnorm(160, 0, 1)), aes(fitted, resid)) +
+  geom_point(color = NAVY, alpha = 0.7) +
+  geom_hline(yintercept = 0, color = ACCENT, linewidth = 1.2) +
+  geom_ribbon(data = data.frame(fitted = c(0, 10)), aes(x = fitted, ymin = -2, ymax = 2),
+              fill = ICE, alpha = 0.4, inherit.aes = FALSE) +
+  labs(x = "fitted value", y = "residual", title = "Well-behaved") + theme_mini
+
+E_bad <- ggplot(data.frame(fitted = fitted_e, resid = rnorm(160, 0, 0.3 + 0.35 * fitted_e)),
+                 aes(fitted, resid)) +
+  geom_point(color = NAVY, alpha = 0.7) +
+  geom_hline(yintercept = 0, color = ACCENT, linewidth = 1.2) +
+  labs(x = "fitted value", y = "residual", title = "Violated") + theme_mini
+
+E_good | E_bad
+```
+
+> **Try it yourself:** in the `L_bad` chunk, change `0.25 * (fitted_vals - 5)^2`
+> to `0.6 * (fitted_vals - 5)^2` (a stronger curvature) and re-run. How much
+> more obvious does the U-shape need to get before you would categorise it as
+> "violated", rather than borderline ? There is no hard cutoff here.
+
+---
+
+## 7. Formal tests
+
+Every plot above has a matching formal test. Run them on the real fitted
+model (`fit`, from Section 2):
+
+```{r formal-tests}
+resettest(fit, power = 2:3, type = "fitted")   # linearity
+dwtest(fit)                                     # independence
+shapiro.test(resid(fit))                        # normality
+bptest(fit)                                     # equal variance
+```
+
+> **Try it yourself:** for each test, find the p-value in the output.
+> A small p-value (conventionally < 0.05) means the test is flagging a
+> likely violation. Do the test results agree with what the plots showed
+> you visually ? They usually do — but they don't have to, especially
+> with a small sample.
+
+---
+
+## Wrap-up
+
+If you have run every chunk of code and every "**Try it yourself**" exercise, you have reproduced
+the entire lecture's evidence base yourself using the official CDC/NCHS data !

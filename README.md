@@ -11,19 +11,19 @@ By the end of this mock lecture, you will be able to:
 
 * **Analyze** the core concepts presented in [`slides/mock-lecture-rr.pdf`](slides/mock-lecture-rr.pdf)
 * **Execute** and modify data workflows inside [`notebook/growth_LINE_notebook.Rmd`](notebook/growth_LINE_notebook.Rmd)
-* **Validate** your understanding using the interactive [`quiz/mystery_plot_quiz.html`](quiz/mystery_plot_quiz.html)
+* **Validate** your understanding using the interactive [`quiz/mystery_plot_quiz.html`](https://rogini98.github.io/LM_model_assumptions/quiz/mystery_plot_quiz.html)
 
 ## How to use each one
 
 **Slides**: PDF renders directly in GitHub, no download needed.
 
 **Notebook**: You can view the rendered version at
-[`notebook/growth_LINE_notebook.html`](notebook/growth_LINE_notebook.html) directly in your browser (no installation is required).
+[`notebook/growth_LINE_notebook.html`](https://rogini98.github.io/LM_model_assumptions/notebook/growth_LINE_notebook.html) directly in your browser (no installation is required).
 To run and edit the code yourself, download the
 [source (.Rmd)](notebook/growth_LINE_notebook.Rmd) and open it in
 RStudio. Each section ends with a "Try it yourself" prompt.
 
-**Quiz**: click [`quiz/mystery_plot_quiz.html`](quiz/mystery_plot_quiz.html),
+**Quiz**: click [`quiz/mystery_plot_quiz.html`](https://rogini98.github.io/LM_model_assumptions/quiz/mystery_plot_quiz.html),
 answer all 8 questions, see your score at the end. No login or prior setup is required, it runs entirely in your browser.
 
 ## Data

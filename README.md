@@ -36,7 +36,7 @@ patient records.
 **Source:** https://www.cdc.gov/growthcharts/cdc-data-files.htm
 
 ***NOTE*** The **R notebook** fetches real CDC/NCHS 2000 Growth Chart medians directly from the official
-CDC data files, every time it runs. Whereas the **slide deck**'s static figures use representative approximations
+CDC data files every time it runs. Whereas the **slide deck**'s static figures use representative approximations
 of the same published growth curves rather than numbers pulled directly from the CDC files.
 
 ## License

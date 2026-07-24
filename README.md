@@ -9,7 +9,7 @@ Finally, we look at what happens when real growth data breaks each of those assu
 
 By the end of this mock lecture, you will be able to:
 
-* **Analyze** the core concepts presented in [`slides/mock-lecture-rr.pdf`](slides/mock-lecture-rr.pdf)
+* **Analyze** the core concepts presented in [`slides/mock-lecture-rr.pdf`](https://rogini98.github.io/LM_model_assumptions/slides/mock-lecture-rr.pdf)
 * **Execute** and modify data workflows inside [`notebook/growth_LINE_notebook.Rmd`](notebook/growth_LINE_notebook.Rmd)
 * **Validate** your understanding using the interactive [`quiz/mystery_plot_quiz.html`](https://rogini98.github.io/LM_model_assumptions/quiz/mystery_plot_quiz.html)
 
